@@ -19,47 +19,63 @@ document.addEventListener('DOMContentLoaded', () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  const duckFramesSrc = ["duck1.png"];
+  // Image sources
+  const duckFramesSrc = ["duck1.png", "duck2.png"];
   const pipeImgSrc = { top: "pipe2.png", bottom: "pipe1.png" };
   const windImgSrc = "wind.png";
+
+  // Image storage
   const duckFrames = [];
   const pipeImages = { top: null, bottom: null };
   let windImg = null;
 
   let loadedCount = 0;
+  const totalImages = duckFramesSrc.length + Object.keys(pipeImgSrc).length + 1; 
 
-  // Load duck frames
+  function checkAllLoaded() {
+    if (loadedCount === totalImages) {
+      console.log("✅ All images loaded successfully. Starting the game...");
+      requestAnimationFrame(loop);
+    } else {
+      console.error(`❌ Some images failed to load. Loaded ${loadedCount}/${totalImages}`);
+    }
+  }
+
+  // Load images
   duckFramesSrc.forEach(src => {
     const img = new Image();
     img.src = src;
-    img.onload = () => { loadedCount++; if (loadedCount === 4) requestAnimationFrame(loop); };
-    img.onerror = () => console.error(`Failed to load ${src}`);
-    duckFrames.push(img);
+    img.onload = () => {
+      duckFrames.push(img);
+      loadedCount++;
+      checkAllLoaded();
+    };
+    img.onerror = () => console.error(`❌ Failed to load: ${src}`);
   });
 
-  // Load pipe images
   for (const type in pipeImgSrc) {
     const img = new Image();
     img.src = pipeImgSrc[type];
-    img.onload = () => { loadedCount++; if (loadedCount === 4) requestAnimationFrame(loop); };
-    img.onerror = () => console.error(`Failed to load ${pipeImgSrc[type]}`);
-    pipeImages[type] = img;
+    img.onload = () => {
+      pipeImages[type] = img;
+      loadedCount++;
+      checkAllLoaded();
+    };
+    img.onerror = () => console.error(`❌ Failed to load: ${pipeImgSrc[type]}`);
   }
 
-  // Load wind image
   windImg = new Image();
   windImg.src = windImgSrc;
   windImg.onload = () => {
-    console.log("Wind image loaded successfully.");
     loadedCount++;
-    if (loadedCount === 4) {
-      requestAnimationFrame(loop); // Start loop only after all images load
-    }
+    checkAllLoaded();
   };
-  windImg.onerror = () => console.error("Failed to load wind.png");
+  windImg.onerror = () => console.error(`❌ Failed to load: ${windImgSrc}`);
 
-  let duck = { x: 100, y: canvas.height / 2, gravity: 0, width: 120, height: 90 };
-  let pipes = [], score = 0, gap = 400, speed = 3, gameRunning = false, duckFrame = 0, showWind = false, windTimer = 0;
+  // Game variables
+  let duck = { x: 150, y: canvas.height / 2, gravity: 0, width: 120, height: 110 };
+  let pipes = [], score = 0, baseGap = 600, speed = 3, gameRunning = false, duckFrame = 0;
+  let showWind = false, windTimer = 0;
 
   function loop(timestamp) {
     ctx.fillStyle = "#70c5ce";
@@ -68,42 +84,40 @@ document.addEventListener('DOMContentLoaded', () => {
     // Draw pipes
     pipes.forEach(p => {
       const pipeImg = p.type === 'top' ? pipeImages.top : pipeImages.bottom;
-      ctx.drawImage(pipeImg, p.x, p.y, p.w, p.h);
-
-      ctx.strokeStyle = "red";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(p.x, p.y, p.w, p.h);
+      if (pipeImg) ctx.drawImage(pipeImg, p.x, p.y, p.w, p.h);
 
       if (gameRunning) p.x -= speed;
 
-      const collisionBuffer = 5;
       if (
-        duck.x + collisionBuffer < p.x + p.w &&
-        duck.x + duck.width - collisionBuffer > p.x &&
-        duck.y + collisionBuffer < p.y + p.h &&
-        duck.y + duck.height - collisionBuffer > p.y
+        duck.x < p.x + p.w &&
+        duck.x + duck.width > p.x &&
+        duck.y < p.y + p.h &&
+        duck.y + duck.height > p.y
       ) {
-        console.log("Collision with pipe:", p);
+        console.log("💥 Collision detected with pipe:", p);
         gameRunning = false;
+      }
+
+      // Score logic: only count once per pipe
+      if (!p.scored && p.type === "top" && p.x + p.w < duck.x) {
+        score++;
+        p.scored = true;
       }
     });
 
-    pipes = pipes.filter(p => p.x + p.w > 0); // Remove pipes off-screen
+    pipes = pipes.filter(p => p.x + p.w > 0); // Remove off-screen pipes
 
     // Draw duck
-    ctx.drawImage(duckFrames[duckFrame], duck.x, duck.y, duck.width, duck.height);
-    ctx.strokeStyle = "red";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(duck.x, duck.y, duck.width, duck.height);
+    if (duckFrames.length > 0) {
+      ctx.drawImage(duckFrames[duckFrame % duckFrames.length], duck.x, duck.y, duck.width, duck.height);
+    } else {
+      console.error("❌ No duck frames available to draw.");
+    }
 
-    // Draw wind effect if triggered
-    if (showWind && windImg instanceof HTMLImageElement && windImg.complete) {
-      ctx.drawImage(windImg, duck.x - 150, duck.y, 120, 90); // Positioned left of the duck
-      if (timestamp - windTimer > 1500) { // Hide wind after 1.5 seconds
-        showWind = false;
-      }
-    } else if (showWind) {
-      console.log("Wind image is not ready yet."); // Debugging log
+    // Draw wind effect
+    if (showWind && windImg && windImg.complete) {
+      ctx.drawImage(windImg, duck.x - 70, duck.y + 10, 100, 80);
+      if (timestamp - windTimer > 300) showWind = false;
     }
 
     duckFrame = gameRunning && !(performance.now() % 200 < 100) ? 1 : 0;
@@ -113,18 +127,20 @@ document.addEventListener('DOMContentLoaded', () => {
       duck.y += duck.gravity;
 
       if (duck.y + duck.height >= canvas.height || duck.y <= 0) {
-        console.log("Boundary collision detected");
+        console.log("🛑 Boundary collision detected.");
         gameRunning = false;
       }
 
-      if (performance.now() % 1500 < 20) {
+      // Pipe spawning logic (spaced out to avoid overlap)
+      if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 250) {
+        let gap = Math.max(baseGap - score * 5, 350); // Gap starts wide, gets smaller
         const minPipeHeight = 100;
         const maxPipeHeight = canvas.height - gap - minPipeHeight;
         const topPipeHeight = Math.floor(Math.random() * (maxPipeHeight - minPipeHeight + 1)) + minPipeHeight;
         const bottomPipeHeight = canvas.height - topPipeHeight - gap;
 
         pipes.push({ x: canvas.width, y: 0, w: 80, h: topPipeHeight, type: 'top', scored: false });
-        pipes.push({ x: canvas.width, y: topPipeHeight + gap, w: 80, h: bottomPipeHeight, type: 'bottom', scored: false });
+        pipes.push({ x: canvas.width, y: topPipeHeight + gap, w: 80, h: bottomPipeHeight, type: 'bottom' });
       }
     } else {
       ctx.fillStyle = "#fff";
@@ -132,14 +148,17 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.fillText("Game Over! Press SPACE or CLICK to restart", canvas.width / 2 - 300, canvas.height / 2);
     }
 
+    // Draw score
     ctx.fillStyle = "#fff";
     ctx.font = "30px Arial";
     ctx.fillText(`Score: ${score}`, 20, 40);
+
     requestAnimationFrame(loop);
   }
 
   window.onclick = window.onkeydown = () => {
     if (!gameRunning) {
+      console.log("🔄 Restarting game...");
       duck.y = canvas.height / 2;
       duck.gravity = 0;
       pipes = [];
@@ -147,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
       gameRunning = true;
     }
 
-    // Trigger wind effect
     duck.gravity = -8;
     showWind = true;
     windTimer = performance.now();
